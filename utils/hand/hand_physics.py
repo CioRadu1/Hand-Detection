@@ -7,10 +7,10 @@ SCALE = 1000  # Conversion from meters to millimeters
 # Format: (Base Joint, Middle Joint/Vertex, Tip-ward Joint)
 FINGER_JOINT_MAP = {
     0: (HandJoint.THUMB_MCP,  HandJoint.THUMB_IP,  HandJoint.THUMB_TIP),
-    1: (HandJoint.INDEX_MCP,  HandJoint.INDEX_PIP,  HandJoint.INDEX_DIP),
-    2: (HandJoint.MIDDLE_MCP, HandJoint.MIDDLE_PIP, HandJoint.MIDDLE_DIP),
-    3: (HandJoint.RING_MCP,   HandJoint.RING_PIP,   HandJoint.RING_DIP),
-    4: (HandJoint.PINKY_MCP,  HandJoint.PINKY_PIP,  HandJoint.PINKY_DIP)
+    1: (HandJoint.INDEX_MCP,  HandJoint.INDEX_PIP,  HandJoint.INDEX_TIP),
+    2: (HandJoint.MIDDLE_MCP, HandJoint.MIDDLE_PIP, HandJoint.MIDDLE_TIP),
+    3: (HandJoint.RING_MCP,   HandJoint.RING_PIP,   HandJoint.RING_TIP),
+    4: (HandJoint.PINKY_MCP,  HandJoint.PINKY_PIP,  HandJoint.PINKY_TIP)
 }
 
 def calculate_angle(p1, p2, p3):

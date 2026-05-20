@@ -16,7 +16,7 @@ class SkeletonWindow(OpenCVWindow):
         self.mirror = mirror
         
         # Knuckle-facing perspective (degrees)
-        self.angle_x = -45
+        self.angle_x = -30
         self.angle_y = 10
         self.angle_z = 0
 

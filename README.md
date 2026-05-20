@@ -59,7 +59,7 @@ The system communicates using a structured binary protocol at **115200 baud**.
 | 5 | Pinky | Flexion value (0-255) |
 | 6 | Opposition | Thumb-Index opposition metric (0-255) |
 | 7 | Spread | Finger spread metric (0-255) |
-| 8 | Wrist | Wrist flexion/extension (0-255) |
+| 8 | Wrist | Wrist Pitch (0-127), Wrist Yaw (128-255) |
 | 9 | Checksum | 8-bit sum of bytes 1-8 modulo 256 |
 
 ## Usage

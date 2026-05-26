@@ -3,6 +3,7 @@ import mediapipe as mp
 import time
 
 from utils.hand import hand_landmarks
+from utils.pose import pose_landmarks
 from utils.fpga import fpga_packet
 from utils.fpga.fpga_serial import FPGASerial
 from utils.opencv.webcam_window import WebcamWindow
@@ -14,10 +15,11 @@ def main():
     # Initialize Serial Port (COM3)
     fpga = FPGASerial(port='COM3', baudrate=115200)
 
-    # Initialize the landmarker in VIDEO mode
+    # Initialize landmarkers in VIDEO mode
     landmarker = hand_landmarks.create_hand_landmarker(
         running_mode=hand_landmarks.VisionRunningMode.VIDEO
     )
+    pose = pose_landmarks.create_pose_landmarker()
 
     # Initialize the webcam
     cap = cv2.VideoCapture(0)
@@ -64,6 +66,7 @@ def main():
 
         # Detect landmarks in the frame
         result = landmarker.detect_for_video(mp_image, frame_timestamp_ms)
+        pose_result = pose.detect_for_video(mp_image, frame_timestamp_ms)
 
         decoded = None
         if result.hand_landmarks:
@@ -73,8 +76,19 @@ def main():
             # Extract world landmarks for the detected hand
             primary_hand_world = result.hand_world_landmarks[0]
 
+            # Get elbow angle from pose, matching the detected hand's side
+            elbow_angle = 0
+            if pose_result.pose_landmarks:
+                handedness = result.handedness[0][0].category_name
+                elbow_angle = pose_landmarks.get_elbow_angle(
+                    pose_result.pose_landmarks[0], handedness
+                )
+                pose_landmarks.draw_arm_landmarks(
+                    frame, pose_result.pose_landmarks[0], handedness
+                )
+
             # 1. Create the FPGA packet (Header 0xFF)
-            packet = fpga_packet.create_fpga_packet(primary_hand_world)
+            packet = fpga_packet.create_fpga_packet(primary_hand_world, elbow_angle)
 
             if packet:
                 # 1. Visualize sent data in console
@@ -126,6 +140,7 @@ def main():
     # Cleanup
     fpga.close()
     landmarker.close()
+    pose.close()
     cap.release()
     window.close()
     visualizer_3d.close()

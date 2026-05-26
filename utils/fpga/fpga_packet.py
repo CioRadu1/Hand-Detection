@@ -13,7 +13,7 @@ HEADER_RX = 0xFE  # Read-back from FPGA
 def _clamp_angle(value):
     return max(0, min(180, int(value)))
 
-def create_fpga_packet(world_landmarks):
+def create_fpga_packet(world_landmarks, elbow_angle=0):
     """
     Constructs a 10-byte packet matching the VHDL frame_rx protocol.
 
@@ -38,7 +38,7 @@ def create_fpga_packet(world_landmarks):
         _clamp_angle(opposition),      # Servo 4: Thumb palm movement
         _clamp_angle(flexions[0]),     # Servo 5: Thumb finger tension
         _clamp_angle(pitch),           # Servo 6: Wrist rotation (pitch)
-        0,                             # Servo 7: Elbow (no tracking yet)
+        _clamp_angle(elbow_angle),     # Servo 7: Elbow
     ]
 
     checksum = HEADER_TX

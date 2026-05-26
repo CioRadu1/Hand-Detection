@@ -11,16 +11,17 @@ class OpenCVWindow:
     def show(self, frame):
         cv2.imshow(self.window_name, frame)
 
-    def should_close(self):
+    def poll_key(self):
         key = cv2.waitKey(1) & 0xFF
-        if key == 27 or key == ord('q'):
-            return True
         try:
             if cv2.getWindowProperty(self.window_name, cv2.WND_PROP_VISIBLE) < 1:
-                return True
+                return 27
         except:
-            return True
-        return False
+            return 27
+        return key
+
+    def should_close(self):
+        return self.poll_key() in (27, ord('q'))
 
     def close(self):
         cv2.destroyWindow(self.window_name)

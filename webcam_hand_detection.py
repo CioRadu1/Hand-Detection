@@ -25,23 +25,20 @@ def main():
         print("Error: Could not open webcam.")
         fpga.close()
         return
-    
+
     # Initialize Windows
     window = WebcamWindow("Webcam Hand Detection")
     visualizer_3d = SkeletonWindow("3D Hand Skeleton")
 
     print("--- Starting Webcam Hand Detection ---")
     print("Press 'Esc' or close the window to quit.")
+    print("Press WASD to rotate skeleton view.")
 
     last_time = time.perf_counter()
 
     # Moving average variables
     avg_ms = 33.3
     alpha = 0.1
-
-    wrist_mode = fpga_packet.WRIST_MODE_PITCH
-    # Stateful wrist values to prevent flickering with multiplexing
-    wrist_state = {"pitch": 90, "yaw": 90}
 
     while cap.isOpened():
         current_time = time.perf_counter()
@@ -55,7 +52,7 @@ def main():
         if not success:
             print("Ignoring empty camera frame.")
             continue
-        
+
         # Flip the frame horizontally for a more natural selfie-view display
         frame = cv2.flip(frame, 1)
         # Convert the frame to RGB (MediaPipe requirement)
@@ -75,15 +72,9 @@ def main():
 
             # Extract world landmarks for the detected hand
             primary_hand_world = result.hand_world_landmarks[0]
-            
+
             # 1. Create the FPGA packet (Header 0xFF)
-            packet = fpga_packet.create_fpga_packet(primary_hand_world, wrist_mode)
-            
-            # Toggle wrist mode for next frame (State Machine)
-            if wrist_mode == fpga_packet.WRIST_MODE_PITCH:
-                wrist_mode = fpga_packet.WRIST_MODE_YAW
-            else:
-                wrist_mode = fpga_packet.WRIST_MODE_PITCH
+            packet = fpga_packet.create_fpga_packet(primary_hand_world)
 
             if packet:
                 # 1. Visualize sent data in console
@@ -95,24 +86,18 @@ def main():
 
                 # 3. Receive Feedback (Real or Simulated)
                 feedback_packet = fpga.receive_packet()
-                
+
                 # If no real serial or no response, fall back to simulation for UI visualization
                 if not feedback_packet:
-                    feedback_packet = b'\xFE' + packet[1:]
-                
-                decoded = fpga_packet.decode_fpga_packet(feedback_packet)
-                
-                if decoded:
-                    # Update stateful wrist values
-                    if decoded["wrist_pitch"] is not None:
-                        wrist_state["pitch"] = decoded["wrist_pitch"]
-                    if decoded["wrist_yaw"] is not None:
-                        wrist_state["yaw"] = decoded["wrist_yaw"]
-                    
-                    # Inject full state back for UI
-                    decoded["wrist_pitch"] = wrist_state["pitch"]
-                    decoded["wrist_yaw"] = wrist_state["yaw"]
+                    sim_payload = packet[1:9]
+                    sim_checksum = 0xFE
+                    for b in sim_payload:
+                        sim_checksum ^= b
+                    feedback_packet = bytes([0xFE]) + sim_payload + bytes([sim_checksum])
 
+                decoded = fpga_packet.decode_fpga_packet(feedback_packet)
+
+                if decoded:
                     if fpga.is_connected() and feedback_packet[0] == 0xFE:
                          print(f"RX <- FPGA: {feedback_packet.hex().upper()}")
 
@@ -122,13 +107,22 @@ def main():
 
         # Show detection status and metrics on screen
         window.draw_info(frame, decoded, avg_ms)
-        
+
         # Display the frame
         window.show(frame)
 
-        if window.should_close() or visualizer_3d.should_close():
+        key = window.poll_key()
+        if key in (27, ord('q')) or visualizer_3d.should_close():
             break
-    
+        elif key == ord('a'):
+            visualizer_3d.angle_y -= 10
+        elif key == ord('d'):
+            visualizer_3d.angle_y += 10
+        elif key == ord('w'):
+            visualizer_3d.angle_x -= 10
+        elif key == ord('s'):
+            visualizer_3d.angle_x += 10
+
     # Cleanup
     fpga.close()
     landmarker.close()

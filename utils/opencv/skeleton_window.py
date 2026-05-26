@@ -14,7 +14,7 @@ class SkeletonWindow(OpenCVWindow):
         self.height = height
         self.scale = 250
         self.mirror = mirror
-        
+
         # Knuckle-facing perspective (degrees)
         self.angle_x = -30
         self.angle_y = 10
@@ -32,14 +32,13 @@ class SkeletonWindow(OpenCVWindow):
         v = pt - pivot
         cos_a = np.cos(angle)
         sin_a = np.sin(angle)
-        # Ensure axis is normalized
         axis = axis / np.linalg.norm(axis)
         v_rot = v * cos_a + np.cross(axis, v) * sin_a + axis * np.dot(axis, v) * (1 - cos_a)
         return pivot + v_rot
 
     def render_from_packet(self, decoded):
         """
-        Renders a full 21-landmark skeleton using packet data to transform 
+        Renders a full 21-landmark skeleton using packet data to transform
         a neutral 'documentation-style' rest pose with realistic kinematics.
         """
         canvas = np.zeros((self.height, self.width, 3), dtype=np.uint8)
@@ -52,67 +51,54 @@ class SkeletonWindow(OpenCVWindow):
 
         # 1. Neutral Rest Pose
         points = np.zeros((21, 3))
-        # Wrist
         points[HandJoint.WRIST]      = [0, 0, 0]
-        # Thumb
         points[HandJoint.THUMB_CMC]  = [0.15, 0.1, 0.05]
         points[HandJoint.THUMB_MCP]  = [0.35, 0.2, 0.15]
         points[HandJoint.THUMB_IP]   = [0.5, 0.3, 0.25]
         points[HandJoint.THUMB_TIP]  = [0.65, 0.4, 0.35]
-        # Index
         points[HandJoint.INDEX_MCP]  = [0.3, 0.6, 0]
         points[HandJoint.INDEX_PIP]  = [0.3, 0.9, 0]
         points[HandJoint.INDEX_DIP]  = [0.3, 1.1, 0]
         points[HandJoint.INDEX_TIP]  = [0.3, 1.25, 0]
-        # Middle
         points[HandJoint.MIDDLE_MCP] = [0, 0.7, -0.05]
         points[HandJoint.MIDDLE_PIP] = [0, 1.1, -0.05]
         points[HandJoint.MIDDLE_DIP] = [0, 1.35, -0.05]
         points[HandJoint.MIDDLE_TIP] = [0, 1.5, -0.05]
-        # Ring
         points[HandJoint.RING_MCP]   = [-0.3, 0.65, 0]
         points[HandJoint.RING_PIP]   = [-0.3, 1.0, 0]
         points[HandJoint.RING_DIP]   = [-0.3, 1.2, 0]
         points[HandJoint.RING_TIP]   = [-0.3, 1.35, 0]
-        # Pinky
         points[HandJoint.PINKY_MCP]  = [-0.6, 0.55, 0.1]
         points[HandJoint.PINKY_PIP]  = [-0.6, 0.8, 0.1]
         points[HandJoint.PINKY_DIP]  = [-0.6, 1.0, 0.1]
         points[HandJoint.PINKY_TIP]  = [-0.6, 1.1, 0.1]
 
-        # 2. Extract Packet Metrics
-        # Flexion: 0 straight, high bent. Opposition: dist in mm.
+        # 2. Extract Packet Metrics (servo angles 0-180)
         flexions = [decoded['thumb'], decoded['index'], decoded['middle'], decoded['ring'], decoded['pinky']]
-        
-        # Normalize Spread (roughly 30-150 mm range to 0-1)
-        spread_val = np.clip((decoded['spread'] - 40) / 100.0, 0, 1)
-        
-        # Normalize Opposition (distance decreases as thumb opposes)
-        # Max dist ~120mm, Min dist ~20mm
-        opp_factor = np.clip((120 - decoded['opposition']) / 100.0, 0, 1)
-        
-        # Multiplexed/Stateful Wrist Angles (90 is neutral)
-        pitch_angle = decoded['wrist_pitch'] - 90
-        yaw_angle = decoded['wrist_yaw'] - 90
+
+        # Spread: derive from finger angles (no dedicated servo)
+        spread_val = np.clip((abs(flexions[1] - flexions[4])) / 90.0, 0, 1)
+
+        # Opposition: thumb_palm servo angle normalized to 0-1
+        opp_factor = np.clip(decoded['thumb_palm'] / 180.0, 0, 1)
+
+        wrist_angle = decoded['wrist'] - 90
 
         # 3. Apply Kinematics
-        
+
         # A. Finger Spread (Rotate chains around the wrist/center)
         for i, mcp_idx in enumerate(HandJoint.get_finger_bases()):
-            if mcp_idx == HandJoint.THUMB_CMC: continue   # Thumb has unique opposition logic
-            if mcp_idx == HandJoint.MIDDLE_MCP: continue  # Middle is anchor
-            
-            # Middle is index 2 in [Thumb, Index, Middle, Ring, Pinky]
-            # We use (i - 2) to center the spread rotation on Middle
+            if mcp_idx == HandJoint.THUMB_CMC: continue
+            if mcp_idx == HandJoint.MIDDLE_MCP: continue
+
             spread_angle = np.radians((i - 2) * 15 * spread_val)
-            for j in range(4): # MCP to TIP
+            for j in range(4):
                 idx = mcp_idx + j
                 points[idx] = self.rotate_around(points[idx], [0, 0, 0], [0, 0, 1], spread_angle)
 
         # B. Thumb Opposition (Arc across the palm)
-        # Rotate thumb chain (2-4) around CMC (1) toward the pinky
-        opp_angle = np.radians(opp_factor * 60) # Up to 60 deg across palm
-        opp_axis = [0, 1, 0.5] # Diagonal axis for palm-cross
+        opp_angle = np.radians(opp_factor * 60)
+        opp_axis = [0, 1, 0.5]
         for i in range(HandJoint.THUMB_MCP, HandJoint.THUMB_TIP + 1):
             points[i] = self.rotate_around(points[i], points[HandJoint.THUMB_CMC], opp_axis, opp_angle)
 
@@ -120,18 +106,14 @@ class SkeletonWindow(OpenCVWindow):
         for i, indices in enumerate(HandJoint.get_finger_chains()):
             f_val = flexions[i]
             f_rad = np.radians(f_val)
-            
-            # Rotation axis: perpendicular to the finger's plane
+
             if i == 0:
-                # Thumb bend axis is local to its orientation
                 thumb_dir = points[HandJoint.THUMB_MCP] - points[HandJoint.THUMB_CMC]
                 bend_axis = np.cross(thumb_dir, [0, 0, 1])
             else:
                 bend_axis = [1, 0, 0]
 
-            # Rotate chain
             if i == 0:
-                # 1. Bend the whole thumb chain around CMC
                 points[HandJoint.THUMB_MCP] = self.rotate_around(points[HandJoint.THUMB_MCP],
                                                                  points[HandJoint.THUMB_CMC],
                                                                  bend_axis, f_rad * 0.2)
@@ -141,48 +123,42 @@ class SkeletonWindow(OpenCVWindow):
                 points[HandJoint.THUMB_TIP] = self.rotate_around(points[HandJoint.THUMB_TIP],
                                                                  points[HandJoint.THUMB_CMC],
                                                                  bend_axis, f_rad * 0.2)
-                
-                # 2. Bend IP and TIP around the NEW MCP
+
                 points[HandJoint.THUMB_IP]  = self.rotate_around(points[HandJoint.THUMB_IP],
                                                                  points[HandJoint.THUMB_MCP],
                                                                  bend_axis, f_rad * 0.3)
                 points[HandJoint.THUMB_TIP] = self.rotate_around(points[HandJoint.THUMB_TIP],
                                                                  points[HandJoint.THUMB_MCP],
                                                                  bend_axis, f_rad * 0.3)
-                
-                # 3. Bend TIP around the NEW IP
+
                 points[HandJoint.THUMB_TIP] = self.rotate_around(points[HandJoint.THUMB_TIP],
                                                                  points[HandJoint.THUMB_IP],
                                                                  bend_axis, f_rad * 0.5)
             else:
-                # Other fingers curl at PIP(6), DIP(7), TIP(8)
                 mcp = points[indices[0]]
                 points[indices[1]] = self.rotate_around(points[indices[1]], mcp, bend_axis, f_rad * 0.4)
                 points[indices[2]] = self.rotate_around(points[indices[2]], mcp, bend_axis, f_rad * 0.7)
                 points[indices[3]] = self.rotate_around(points[indices[3]], mcp, bend_axis, f_rad * 1.0)
 
         # D. Wrist Rotation
-        # Separate rotations for Pitch (X) and Yaw (Y)
-        Rw = self._get_rotation_matrix(-pitch_angle, -yaw_angle, 0)
+        Rw = self._get_rotation_matrix(wrist_angle, 0, 0)
         points = points @ Rw.T
 
         # 4. View Projection
         R_view = self._get_rotation_matrix(self.angle_x, self.angle_y, self.angle_z)
         rotated = points @ R_view.T
-        
+
         proj = rotated[:, :2] * self.scale
         proj[:, 1] *= -1
-        
+
         if self.mirror:
             proj[:, 0] *= -1
-            
+
         proj += np.array([self.width // 2, self.height // 2 + 100])
 
         # 5. Rendering
-        # Draw Palm Poly
         cv2.fillPoly(canvas, [proj[HandJoint.get_palm_indices()].astype(int)], (40, 40, 40))
 
-        # Z-Sorting
         sorted_connections = sorted(
             HAND_CONNECTIONS,
             key=lambda conn: (rotated[conn[0], 2] + rotated[conn[1], 2]) / 2
@@ -199,7 +175,7 @@ class SkeletonWindow(OpenCVWindow):
 
         cv2.putText(canvas, "Hand Skeletonization (Knuckle View)", (10, 25),
                     cv2.FONT_HERSHEY_SIMPLEX, 0.5, (150, 150, 150), 1)
-        
+
         return canvas
 
     def _draw_grid(self, canvas):
